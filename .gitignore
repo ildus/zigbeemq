@@ -1,0 +1,6 @@
+/zigbeemq
+/dist/
+data/
+*.json
+!go.mod
+!go.sum
