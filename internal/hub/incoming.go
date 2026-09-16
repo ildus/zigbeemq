@@ -165,7 +165,7 @@ func parseAFIncoming(data []byte) (*znp.IncomingMessage, error) {
 }
 
 func parseAFIncomingExt(data []byte) (*znp.IncomingMessage, error) {
-	if len(data) < 26 {
+	if len(data) < 27 {
 		return nil, fmt.Errorf("short ext")
 	}
 	off := 0
@@ -233,10 +233,6 @@ func (h *Hub) handleIncoming(msg *znp.IncomingMessage) {
 		return
 	}
 
-	if d.Kind == KindSwitch {
-		h.maybeBindSwitch(d)
-	}
-
 	if d.Kind == KindLight || d.Kind == KindPlug {
 		h.applyLightReport(d.IEEE, frame, msg.ClusterID)
 		return
@@ -250,6 +246,18 @@ func (h *Hub) handleIncoming(msg *znp.IncomingMessage) {
 			return
 		}
 		if h.applyMotionReport(d.IEEE, frame, msg.ClusterID) {
+			return
+		}
+	}
+
+	if msg.ClusterID == uint16(zcl.ClusterOnOff) && frame.Control.FrameType == zcl.FrameTypeGlobal && frame.CommandID == uint8(zcl.CmdReportAttributes) {
+		if count, ok := xiaomiClickCount(frame); ok {
+			// Values 2+ are final multi-click reports. Values 0/1 are
+			// press/single metadata; OnOff press/release handles those.
+			if count >= 2 {
+				h.cancelPress(d.IEEE)
+				h.noteAction(d.IEEE, clickAction(count))
+			}
 			return
 		}
 	}
@@ -326,33 +334,36 @@ func decodeAction(d Device, frame *zcl.Frame, cluster uint16) string {
 			}
 		}
 	}
-	if cluster == uint16(zcl.ClusterOnOff) && frame.CommandID == uint8(zcl.CmdReportAttributes) {
-		attrs, err := zcl.ParseReportAttributesPayload(frame.Payload)
-		if err != nil {
-			return ""
-		}
-		for _, a := range attrs {
-			if a.AttributeID != xiaomiClickAttr {
-				continue
-			}
-			switch toUint(a.Value) {
-			case 0, 1:
-				continue
-			case 2:
-				return "double"
-			case 3:
-				return "triple"
-			case 4:
-				return "quadruple"
-			default:
-				if toUint(a.Value) >= 5 {
-					return "many"
-				}
-			}
-		}
-	}
 	_ = d
 	return ""
+}
+
+func xiaomiClickCount(frame *zcl.Frame) (uint8, bool) {
+	attrs, err := zcl.ParseReportAttributesPayload(frame.Payload)
+	if err != nil {
+		return 0, false
+	}
+	for _, a := range attrs {
+		if a.AttributeID == xiaomiClickAttr {
+			return uint8(toUint(a.Value)), true
+		}
+	}
+	return 0, false
+}
+
+func clickAction(count uint8) string {
+	switch count {
+	case 1:
+		return "single"
+	case 2:
+		return "double"
+	case 3:
+		return "triple"
+	case 4:
+		return "quadruple"
+	default:
+		return "many"
+	}
 }
 
 func (h *Hub) handleXiaomiOnOff(ieee string, frame *zcl.Frame) {

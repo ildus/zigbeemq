@@ -108,16 +108,16 @@ type Hub struct {
 type pressWatch struct {
 	timer *time.Timer
 	held  bool
-	up bool // released, waiting to confirm single vs multi-click
+	up    bool // released, waiting to confirm single vs multi-click
 }
 
 func New(log *slog.Logger, dataDir string) *Hub {
 	return &Hub{
-		log:       log,
-		dataDir:   dataDir,
-		devices:   make(map[string]*Device),
-		forgotten: make(map[string]struct{}),
-		presses:   make(map[string]*pressWatch),
+		log:         log,
+		dataDir:     dataDir,
+		devices:     make(map[string]*Device),
+		forgotten:   make(map[string]struct{}),
+		presses:     make(map[string]*pressWatch),
 		bound:       make(map[string]struct{}),
 		motionReady: make(map[string]struct{}),
 		subs:        make(map[subscriber]struct{}),

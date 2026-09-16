@@ -167,7 +167,11 @@ func setName(base, topic string) (string, bool) {
 	if !strings.HasPrefix(topic, prefix) || !strings.HasSuffix(topic, "/set") {
 		return "", false
 	}
-	mid := strings.TrimSuffix(strings.TrimPrefix(topic, prefix), "/set")
+	rest := strings.TrimPrefix(topic, prefix)
+	if !strings.HasSuffix(rest, "/set") {
+		return "", false
+	}
+	mid := strings.TrimSuffix(rest, "/set")
 	if mid == "" || strings.Contains(mid, "/") {
 		return "", false
 	}
