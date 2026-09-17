@@ -674,37 +674,6 @@ func (h *Hub) applyLightReport(ieee string, frame *zcl.Frame, cluster uint16) {
 	}
 }
 
-// BindSwitch binds a switch while it is awake. Caller controls timeout.
-func (h *Hub) BindSwitch(ctx context.Context, ieee string) error {
-	d, err := h.Device(ieee)
-	if err != nil {
-		return err
-	}
-	if d.Kind != KindSwitch {
-		return fmt.Errorf("device is not a switch")
-	}
-	addr, err := parseIEEE(d.IEEE)
-	if err != nil {
-		return err
-	}
-	ep := d.Endpoint
-	if ep == 0 {
-		ep = 1
-	}
-	h.radio.Lock()
-	err = h.adapter.Bind(ctx, addr, d.NwkAddr, ep, uint16(zcl.ClusterOnOff), h.coordIEEE, 1)
-	h.radio.Unlock()
-	if err != nil {
-		return err
-	}
-	key := compactIEEE(ieee)
-	h.boundMu.Lock()
-	h.bound[key] = struct{}{}
-	h.boundMu.Unlock()
-	h.log.Info("switch bound", "name", d.Name)
-	return nil
-}
-
 func (h *Hub) maybeBindSwitch(d Device) {
 	key := compactIEEE(d.IEEE)
 	h.boundMu.Lock()

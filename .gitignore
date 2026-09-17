@@ -4,4 +4,4 @@ data/
 *.json
 !go.mod
 !go.sum
-/grph
+/.grph

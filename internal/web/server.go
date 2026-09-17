@@ -30,7 +30,6 @@ func New(h *hub.Hub) *Server {
 	s.mux.HandleFunc("POST /api/devices/{ieee}/off", s.off)
 	s.mux.HandleFunc("POST /api/devices/{ieee}/brightness", s.brightness)
 	s.mux.HandleFunc("POST /api/devices/{ieee}/interview", s.interview)
-	s.mux.HandleFunc("POST /api/devices/{ieee}/bind-switch", s.bindSwitch)
 	s.mux.HandleFunc("PATCH /api/devices/{ieee}", s.update)
 	s.mux.HandleFunc("DELETE /api/devices/{ieee}", s.remove)
 	s.mux.HandleFunc("POST /api/permit-join", s.permitJoin)
@@ -135,18 +134,6 @@ func (s *Server) interview(w http.ResponseWriter, r *http.Request) {
 	}
 	d, _ := s.hub.Device(r.PathValue("ieee"))
 	writeJSON(w, http.StatusOK, d)
-}
-
-func (s *Server) bindSwitch(w http.ResponseWriter, r *http.Request) {
-	if err := s.hub.BindSwitch(r.Context(), r.PathValue("ieee")); err != nil {
-		status := http.StatusBadGateway
-		if hub.IsNotFound(err) {
-			status = http.StatusNotFound
-		}
-		writeErr(w, status, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"ok": "bound"})
 }
 
 func (s *Server) update(w http.ResponseWriter, r *http.Request) {
