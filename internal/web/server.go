@@ -138,14 +138,15 @@ func (s *Server) interview(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) update(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		Name string   `json:"name"`
-		Kind hub.Kind `json:"kind"`
+		Name     string    `json:"name"`
+		Kind     hub.Kind  `json:"kind"`
+		Archived *bool     `json:"archived"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	if err := s.hub.Update(r.PathValue("ieee"), body.Name, body.Kind); err != nil {
+	if err := s.hub.Update(r.PathValue("ieee"), body.Name, body.Kind, body.Archived); err != nil {
 		status := http.StatusBadRequest
 		if hub.IsNotFound(err) {
 			status = http.StatusNotFound

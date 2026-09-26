@@ -65,6 +65,7 @@
       align-items: center;
       flex-wrap: wrap;
     }
+    .bar .join { margin-right: auto; }
     button, .btn, select, input[type=text] {
       background: var(--panel);
       color: var(--text);
@@ -80,6 +81,65 @@
     button.danger:hover { border-color: var(--bad); }
     input[type=text] { min-width: 0; flex: 1; width: 100%; }
     select { color: var(--text); }
+    .menu {
+      position: relative;
+      flex: none;
+    }
+    .menu-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+      padding: 0.35rem 0.65rem;
+    }
+    .menu-btn:hover { color: var(--text); }
+    .menu-btn svg {
+      width: 12px;
+      height: 12px;
+      opacity: 0.7;
+      transition: transform 0.15s ease;
+    }
+    .menu.open .menu-btn {
+      color: var(--text);
+      border-color: var(--accent);
+    }
+    .menu.open .menu-btn svg { transform: rotate(180deg); }
+    .menu-list {
+      display: none;
+      position: absolute;
+      top: calc(100% + 4px);
+      right: 0;
+      min-width: max(100%, 9.5rem);
+      margin: 0;
+      padding: 0.3rem;
+      list-style: none;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      z-index: 15;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    }
+    .menu.open .menu-list { display: block; }
+    .menu-list button {
+      display: block;
+      width: 100%;
+      text-align: left;
+      background: transparent;
+      border: none;
+      border-radius: 5px;
+      padding: 0.4rem 0.6rem;
+      color: var(--text);
+      font-size: 0.85rem;
+    }
+    .menu-list button:hover {
+      background: rgba(212, 162, 76, 0.12);
+      border-color: transparent;
+      color: var(--accent);
+    }
+    .menu-list button[aria-selected="true"] {
+      color: var(--accent);
+    }
     main {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -117,10 +177,12 @@
     .icon-btn:hover { color: var(--accent); background: rgba(212, 162, 76, 0.12); }
     .icon-btn svg { width: 15px; height: 15px; }
     .card.pulse { animation: cardpulse 0.45s ease; }
+    .card.archived { opacity: 0.72; }
     @keyframes cardpulse {
       0% { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
       100% { border-color: var(--line); box-shadow: none; }
     }
+    .badge.muted { background: var(--off); color: var(--text); }
     .click-action {
       color: var(--accent);
       font-variant-numeric: tabular-nums;
@@ -195,6 +257,15 @@
     <button class="primary" id="join" data-i18n="permitJoin">Permit join 60s</button>
     <button id="refresh" data-i18n="refresh">Refresh</button>
     <span class="meta join" id="join-status"></span>
+    <div class="menu" id="filter-menu">
+      <button type="button" class="menu-btn" id="filter-btn" aria-haspopup="listbox" aria-expanded="false">
+        <span id="filter-label">Active</span>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m6 9 6 6 6-6"/>
+        </svg>
+      </button>
+      <div class="menu-list" id="filter-list" role="listbox"></div>
+    </div>
   </div>
   <main id="list"></main>
   <div class="overlay" id="overlay">
@@ -208,7 +279,10 @@
         <select id="edit-kind"></select>
       </label>
       <div class="row actions">
-        <button type="button" class="danger" id="edit-delete" data-i18n="remove">Remove</button>
+        <span class="row">
+          <button type="button" class="danger" id="edit-delete" data-i18n="remove">Remove</button>
+          <button type="button" id="edit-archive" data-i18n="archive">Archive</button>
+        </span>
         <span class="row">
           <button type="button" id="edit-cancel" data-i18n="cancel">Cancel</button>
           <button type="submit" class="primary" data-i18n="save">Save</button>
@@ -254,10 +328,17 @@
         name: "Name",
         type: "Type",
         remove: "Remove",
+        archive: "Archive",
+        unarchive: "Restore",
         cancel: "Cancel",
         save: "Save",
         deleteConfirm: "Remove “{name}” from the network?\nA sleeping device will still be dropped from the coordinator if it does not answer.",
         lang: "Language",
+        filter: "Filter",
+        filterActive: "Active",
+        filterArchived: "Archived",
+        filterAll: "All",
+        "badge.archived": "archived",
         "action.single": "single",
         "action.double": "double",
         "action.triple": "triple",
@@ -299,10 +380,17 @@
         name: "Имя",
         type: "Тип",
         remove: "Удалить",
+        archive: "В архив",
+        unarchive: "Вернуть",
         cancel: "Отмена",
         save: "Сохранить",
         deleteConfirm: "Удалить «{name}» из сети?\nСпящее устройство, если не ответит, будет снято с координатора.",
         lang: "Язык",
+        filter: "Фильтр",
+        filterActive: "Активные",
+        filterArchived: "Архив",
+        filterAll: "Все",
+        "badge.archived": "архив",
         "action.single": "одиночный",
         "action.double": "двойной",
         "action.triple": "тройной",
@@ -344,10 +432,17 @@
         name: "Name",
         type: "Typ",
         remove: "Entfernen",
+        archive: "Archivieren",
+        unarchive: "Wiederherstellen",
         cancel: "Abbrechen",
         save: "Speichern",
         deleteConfirm: "„{name}“ aus dem Netzwerk entfernen?\nEin schlafendes Gerät wird vom Coordinator genommen, auch wenn es nicht antwortet.",
         lang: "Sprache",
+        filter: "Filter",
+        filterActive: "Aktiv",
+        filterArchived: "Archiv",
+        filterAll: "Alle",
+        "badge.archived": "archiviert",
         "action.single": "einfach",
         "action.double": "doppelt",
         "action.triple": "dreifach",
@@ -364,11 +459,19 @@
     const netEl = document.getElementById("net");
     const joinStatus = document.getElementById("join-status");
     const langSel = document.getElementById("lang");
+    const filterMenu = document.getElementById("filter-menu");
+    const filterBtn = document.getElementById("filter-btn");
+    const filterLabel = document.getElementById("filter-label");
+    const filterList = document.getElementById("filter-list");
+    const FILTER_KEY = "zigbeemq.filter";
+    const FILTERS = ["active", "archived", "all"];
+    const FILTER_I18N = {active: "filterActive", archived: "filterArchived", all: "filterAll"};
     let devices = [];
     let permitUntil = 0;
     let netInfo = null;
     const seenAt = {};
     let lang = LANGS.includes(localStorage.getItem(STORAGE_KEY)) ? localStorage.getItem(STORAGE_KEY) : "en";
+    let filter = FILTERS.includes(localStorage.getItem(FILTER_KEY)) ? localStorage.getItem(FILTER_KEY) : "active";
 
     function t(key, vars) {
       let s = (I18N[lang] && I18N[lang][key]) || I18N.en[key] || key;
@@ -415,6 +518,12 @@
       return t("waiting");
     }
 
+    function visibleDevices() {
+      if (filter === "archived") return devices.filter(d => d.archived);
+      if (filter === "all") return devices;
+      return devices.filter(d => !d.archived);
+    }
+
     function showNet() {
       if (!netInfo) {
         netEl.textContent = t("connecting");
@@ -423,7 +532,7 @@
       netEl.textContent = t("net", {
         channel: String(netInfo.channel),
         pan: Number(netInfo.pan_id).toString(16).toUpperCase(),
-        n: String(devices.length),
+        n: String(visibleDevices().length),
       });
     }
 
@@ -433,12 +542,37 @@
       if (cur) editKind.value = cur;
     }
 
+    function filterKey(f) {
+      return FILTER_I18N[f] || "filterActive";
+    }
+
+    function syncFilterMenu() {
+      filterLabel.textContent = t(filterKey(filter));
+      filterBtn.setAttribute("aria-label", t("filter"));
+      filterList.innerHTML = FILTERS.map(f =>
+        `<button type="button" role="option" data-filter="${f}" aria-selected="${f === filter ? "true" : "false"}">${t(filterKey(f))}</button>`
+      ).join("");
+    }
+
+    function closeFilterMenu() {
+      filterMenu.classList.remove("open");
+      filterBtn.setAttribute("aria-expanded", "false");
+    }
+
+    function toggleFilterMenu() {
+      const open = !filterMenu.classList.contains("open");
+      filterMenu.classList.toggle("open", open);
+      filterBtn.setAttribute("aria-expanded", open ? "true" : "false");
+    }
+
     function applyStaticI18n() {
       document.documentElement.lang = lang;
       langSel.value = lang;
       langSel.setAttribute("aria-label", t("lang"));
       document.querySelectorAll("[data-i18n]").forEach(el => { el.textContent = t(el.dataset.i18n); });
       fillKindSelect();
+      syncFilterMenu();
+      syncArchiveBtn();
       if (overlay.classList.contains("show") && overlay.dataset.ieee) {
         const d = devices.find(x => x.ieee === overlay.dataset.ieee);
         editTitle.textContent = (d && d.name) || t("device");
@@ -456,8 +590,23 @@
       render();
     }
 
+    function setFilter(next) {
+      filter = FILTERS.includes(next) ? next : "active";
+      localStorage.setItem(FILTER_KEY, filter);
+      syncFilterMenu();
+      closeFilterMenu();
+      render();
+    }
+
+    function syncArchiveBtn() {
+      const d = devices.find(x => x.ieee === overlay.dataset.ieee);
+      const archived = !!(d && d.archived);
+      editArchive.textContent = archived ? t("unarchive") : t("archive");
+      editArchive.dataset.archived = archived ? "1" : "0";
+    }
+
     function render() {
-      const sorted = [...devices].sort((a, b) =>
+      const sorted = [...visibleDevices()].sort((a, b) =>
         (b.new ? 1 : 0) - (a.new ? 1 : 0) || (a.name || "").localeCompare(b.name || "", LOCALES[lang] || "en")
       );
       list.innerHTML = sorted.map(d => {
@@ -470,7 +619,7 @@
         if (mark) seenAt[d.ieee] = mark;
         const offline = !d.reachable && d.kind !== "switch" && d.kind !== "motion";
         const rawErr = d.error && !isUnavailableErr(d.error) ? d.error : "";
-        return `<article class="card${d.new ? " new" : ""}${pulse ? " pulse" : ""}">
+        return `<article class="card${d.new ? " new" : ""}${d.archived ? " archived" : ""}${pulse ? " pulse" : ""}">
           <div class="card-actions">
             <button class="icon-btn" data-act="interview" data-ieee="${d.ieee}" title="${escapeHtml(t("interviewHint"))}" aria-label="${escapeHtml(t("interviewAria"))}">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -486,6 +635,7 @@
           <div class="kind">
             <span>${t("kind." + (d.kind || "unknown"))}</span>
             ${d.new ? `<span class="badge">${t("badge.new")}</span>` : ""}
+            ${d.archived ? `<span class="badge muted">${t("badge.archived")}</span>` : ""}
           </div>
           <h2>${escapeHtml(d.name || d.ieee)}</h2>
           <div class="ieee">${d.ieee} · nwk 0x${Number(d.nwk_addr).toString(16).padStart(4,"0")} · ${escapeHtml(d.manufacturer || "—")} ${escapeHtml(d.model || "")}</div>
@@ -541,6 +691,7 @@
     const editKind = document.getElementById("edit-kind");
     const editIeee = document.getElementById("edit-ieee");
     const editTitle = document.getElementById("edit-title");
+    const editArchive = document.getElementById("edit-archive");
 
     function openEdit(ieee) {
       const d = devices.find(x => x.ieee === ieee);
@@ -550,6 +701,7 @@
       editIeee.textContent = d.ieee + (d.model ? " · " + d.model : "");
       editName.value = d.name || "";
       editKind.value = d.kind || "unknown";
+      syncArchiveBtn();
       overlay.classList.add("show");
       editName.focus();
       editName.select();
@@ -581,6 +733,16 @@
       await load();
     }
 
+    async function setArchived(ieee, archived) {
+      await api(`/api/devices/${ieee}`, {
+        method: "PATCH",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({archived}),
+      });
+      closeEdit();
+      await load();
+    }
+
     list.addEventListener("click", async (e) => {
       const btn = e.target.closest("button[data-act]");
       if (!btn) return;
@@ -607,7 +769,18 @@
     });
     document.getElementById("edit-cancel").onclick = closeEdit;
     overlay.addEventListener("click", (e) => { if (e.target === overlay) closeEdit(); });
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeEdit(); });
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      if (filterMenu.classList.contains("open")) closeFilterMenu();
+      else closeEdit();
+    });
+    editArchive.onclick = async () => {
+      const ieee = overlay.dataset.ieee;
+      if (!ieee) return;
+      const archived = editArchive.dataset.archived !== "1";
+      try { await setArchived(ieee, archived); }
+      catch (err) { alert(err.message); }
+    };
     document.getElementById("edit-delete").onclick = async () => {
       const ieee = overlay.dataset.ieee;
       const d = devices.find(x => x.ieee === ieee);
@@ -648,6 +821,18 @@
       await loadNetwork();
     };
     langSel.addEventListener("change", () => setLang(langSel.value));
+    filterBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      toggleFilterMenu();
+    });
+    filterList.addEventListener("click", (e) => {
+      const btn = e.target.closest("button[data-filter]");
+      if (!btn) return;
+      setFilter(btn.dataset.filter);
+    });
+    document.addEventListener("click", (e) => {
+      if (!filterMenu.contains(e.target)) closeFilterMenu();
+    });
 
     function applyDevice(d) {
       const i = devices.findIndex(x => x.ieee === d.ieee);

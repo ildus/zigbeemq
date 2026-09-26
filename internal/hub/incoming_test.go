@@ -135,6 +135,37 @@ func TestReportsUpdateState(t *testing.T) {
 		t.Fatalf("bad light: %+v", g)
 	}
 }
+
+func TestUpdateArchived(t *testing.T) {
+	d := Device{IEEE: "00124b0000000003", Name: "lamp", Kind: KindLight}
+	h := testHub(t, d)
+	yes := true
+	if err := h.Update(d.IEEE, "", "", &yes); err != nil {
+		t.Fatal(err)
+	}
+	g, _ := h.Device(d.IEEE)
+	if !g.Archived || g.Name != "lamp" {
+		t.Fatalf("archive: %+v", g)
+	}
+	no := false
+	if err := h.Update(d.IEEE, "", "", &no); err != nil {
+		t.Fatal(err)
+	}
+	g, _ = h.Device(d.IEEE)
+	if g.Archived {
+		t.Fatalf("still archived: %+v", g)
+	}
+	if err := h.Update(d.IEEE, "", "", &yes); err != nil {
+		t.Fatal(err)
+	}
+	h2 := New(slog.New(slog.NewTextHandler(io.Discard, nil)), h.dataDir)
+	h2.loadCache()
+	g, err := h2.Device(d.IEEE)
+	if err != nil || !g.Archived || g.Name != "lamp" {
+		t.Fatalf("reload archived: %+v %v", g, err)
+	}
+}
+
 func TestValueHelpers(t *testing.T) {
 	if toUint(int(-1)) != 0 || toUint(true) != 1 || toUint("7") != 0 {
 		t.Fatal("toUint")

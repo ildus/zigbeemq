@@ -48,6 +48,7 @@ type Device struct {
 	Endpoints    []Endpoint `json:"endpoints,omitempty"`
 	UserLabel    bool       `json:"user_label,omitempty"`
 	New          bool       `json:"new,omitempty"`
+	Archived     bool       `json:"archived,omitempty"`
 }
 
 // Endpoint is a compact interview snapshot so unknown devices stay inspectable.
@@ -290,7 +291,7 @@ func (h *Hub) interviewMissing() {
 	h.mu.RLock()
 	need := make([]Device, 0)
 	for _, d := range h.devices {
-		if d.Kind == KindSwitch || d.Kind == KindSensor || d.Kind == KindMotion {
+		if d.Archived || d.Kind == KindSwitch || d.Kind == KindSensor || d.Kind == KindMotion {
 			continue
 		}
 		if d.Manufacturer == "" && d.Model == "" && len(d.Clusters) == 0 {
@@ -396,7 +397,7 @@ func applyInterview(dev *Device, result *adapter.InterviewResult) {
 	}
 }
 
-func (h *Hub) Update(ieee, name string, kind Kind) error {
+func (h *Hub) Update(ieee, name string, kind Kind, archived *bool) error {
 	if kind != "" && !ValidKind(kind) {
 		return fmt.Errorf("unknown kind %q", kind)
 	}
@@ -409,12 +410,18 @@ func (h *Hub) Update(ieee, name string, kind Kind) error {
 	oldName := dev.Name
 	if name != "" {
 		dev.Name = name
+		dev.UserLabel = true
 	}
 	if kind != "" {
 		dev.Kind = kind
+		dev.UserLabel = true
 	}
-	dev.UserLabel = true
-	dev.New = false
+	if archived != nil {
+		dev.Archived = *archived
+	}
+	if name != "" || kind != "" {
+		dev.New = false
+	}
 	newName := dev.Name
 	h.mu.Unlock()
 	h.saveCache()
@@ -798,6 +805,9 @@ func (h *Hub) noteUnavailable(ieee string, err error) error {
 
 func (h *Hub) startRecovery(ieee string) {
 	key := compactIEEE(ieee)
+	if d, err := h.Device(key); err == nil && d.Archived {
+		return
+	}
 	h.recoverMu.Lock()
 	if _, ok := h.recovering[key]; ok {
 		h.recoverMu.Unlock()
@@ -814,6 +824,9 @@ func (h *Hub) startRecovery(ieee string) {
 		}()
 		for _, delay := range []time.Duration{3 * time.Second, 10 * time.Second, 30 * time.Second, time.Minute, 2 * time.Minute} {
 			time.Sleep(delay)
+			if d, err := h.Device(key); err != nil || d.Archived {
+				return
+			}
 			if h.readState(key) {
 				h.log.Info("device recovered", "ieee", key)
 				h.broadcast(Event{Type: "device", Data: mustDevice(h, key)})

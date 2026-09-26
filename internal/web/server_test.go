@@ -52,4 +52,7 @@ func TestStaticIndex(t *testing.T) {
 	if w.Code != 200 || !strings.Contains(strings.ToLower(w.Body.String()), "<!doctype html>") {
 		t.Fatalf("status=%d", w.Code)
 	}
+	if !strings.Contains(w.Body.String(), "filter-menu") || !strings.Contains(w.Body.String(), "edit-archive") {
+		t.Fatal("missing archive UI")
+	}
 }

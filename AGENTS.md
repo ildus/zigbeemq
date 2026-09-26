@@ -27,10 +27,12 @@ Rules for agents in this repo. README — how to run.
 ## UI
 
 - Primary UI and code language is English. Strings in `index.html` (`en` / `ru` / `de`), choice in `localStorage` (`zigbeemq.lang`).
+- Device list filter: Active / Archived / All (`localStorage` `zigbeemq.filter`). Archive from the edit dialog; device stays on the network and in MQTT.
 - Switch card: `click: <type> · HH:MM:SS`, no click counter. Time with seconds from `last_seen_ms`.
 - Motion card: `motion detected · HH:MM:SS` when occupied.
 - Do not overwrite a fresh click with a stale GET. API: `Cache-Control: no-store`.
 - Unavailability is text on the card, no red border. API code: `unavailable`.
+- Archived devices: skip background interview / recovery probes; still controllable if shown via All / Archived.
 
 ## MQTT
 

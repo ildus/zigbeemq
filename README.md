@@ -55,11 +55,12 @@ After edits under `internal/web/static/`, rebuild: the page is embedded with `go
 
 - Device list from the coordinator table; optional name hints in `internal/hub/known.go` and labels in the disk cache
 - Cards: on/off, brightness, button clicks, motion occupancy
-- Permit join, interview, rename, kind, remove from network
+- Permit join, interview, rename, kind, archive / restore, remove from network
+- Main list filter: Active (default) / Archived / All (browser `localStorage`)
 - Unknown devices get a generic card; cluster snapshot after interview
 - MQTT: `zigbee2mqtt/<name>` (retain), `…/set`, `…/action` for buttons, `bridge/state`
 
-Interview and label cache: `data/devices.json` (directory is gitignored).
+Interview and label cache: `data/devices.json` (directory is gitignored). Archive is a UI flag in that cache (`archived`); the device stays on the Zigbee network. Old caches without the field load as active — no migration.
 
 ## HTTP API
 
@@ -74,10 +75,10 @@ Interview and label cache: `data/devices.json` (directory is gitignored).
 | `POST` | `/api/devices/{ieee}/off` |
 | `POST` | `/api/devices/{ieee}/brightness` `{"percent":0-100}` |
 | `POST` | `/api/devices/{ieee}/interview` |
-| `PATCH` | `/api/devices/{ieee}` `{"name","kind"}` |
+| `PATCH` | `/api/devices/{ieee}` `{"name","kind","archived"}` |
 | `DELETE` | `/api/devices/{ieee}` |
 
-`kind`: `light`, `plug`, `switch`, `sensor`, `motion`, `unknown`.
+`kind`: `light`, `plug`, `switch`, `sensor`, `motion`, `unknown`. `archived` is optional (`true`/`false`); omit to leave unchanged.
 
 A sleeping sensor will not answer interview until woken. Unavailable devices (no ACK, `0xB7` / `0xCD`) show as unavailable on the card, without raw Z-Stack status. UI language defaults to English; Russian and German are selectable (stored in the browser).
 
