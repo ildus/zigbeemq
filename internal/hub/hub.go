@@ -98,6 +98,8 @@ type Hub struct {
 	bound       map[string]struct{}
 	boundMu     sync.Mutex
 	motionReady map[string]struct{}
+	recovering  map[string]struct{}
+	recoverMu   sync.Mutex
 	coordIEEE   [8]byte
 	subs        map[subscriber]struct{}
 	permitUntil time.Time
@@ -120,6 +122,7 @@ func New(log *slog.Logger, dataDir string) *Hub {
 		presses:     make(map[string]*pressWatch),
 		bound:       make(map[string]struct{}),
 		motionReady: make(map[string]struct{}),
+		recovering:  make(map[string]struct{}),
 		subs:        make(map[subscriber]struct{}),
 	}
 }
@@ -142,6 +145,11 @@ func (h *Hub) Open(ctx context.Context, serialPort string) error {
 			defer cancel()
 			if err := h.Refresh(c); err != nil {
 				h.log.Warn("refresh after event", "err", err)
+				return
+			}
+			if ev.Type == adapter.DeviceEventJoined {
+				h.readState(ieee)
+				h.broadcast(Event{Type: "device", Data: mustDevice(h, ieee)})
 			}
 		}()
 	})
@@ -464,12 +472,13 @@ func (h *Hub) unforget(ieee string) {
 	h.mu.Unlock()
 }
 
-func (h *Hub) readState(ieee string) {
+func (h *Hub) readState(ieee string) bool {
 	d, err := h.Device(ieee)
 	if err != nil {
-		return
+		return false
 	}
 	now := time.Now()
+	reached := false
 	if d.HasOnOff || d.Kind == KindLight || d.Kind == KindPlug {
 		ctx, cancel := context.WithTimeout(context.Background(), readTimeout)
 		h.radio.Lock()
@@ -481,9 +490,12 @@ func (h *Hub) readState(ieee string) {
 			if err != nil {
 				dev.Reachable = false
 			} else {
+				reached = true
 				dev.Reachable = true
+				dev.Error = ""
 				dev.On = &on
 				dev.LastSeen = &now
+				dev.LastSeenMs = now.UnixMilli()
 			}
 		}
 		h.mu.Unlock()
@@ -495,12 +507,15 @@ func (h *Hub) readState(ieee string) {
 		h.radio.Unlock()
 		cancel2()
 		if err == nil {
+			reached = true
 			pct := uint8(float64(level) / 254 * 100)
 			h.mu.Lock()
 			if dev := h.devices[compactIEEE(ieee)]; dev != nil {
 				dev.Brightness = &pct
 				dev.Reachable = true
+				dev.Error = ""
 				dev.LastSeen = &now
+				dev.LastSeenMs = now.UnixMilli()
 			}
 			h.mu.Unlock()
 		}
@@ -517,15 +532,19 @@ func (h *Hub) readState(ieee string) {
 		occ, err := h.readOccupancy(ctx, d.NwkAddr, ep, d)
 		cancel()
 		if err == nil {
+			reached = true
 			h.mu.Lock()
 			if dev := h.devices[compactIEEE(ieee)]; dev != nil {
 				dev.Occupancy = &occ
 				dev.Reachable = true
+				dev.Error = ""
 				dev.LastSeen = &now
+				dev.LastSeenMs = now.UnixMilli()
 			}
 			h.mu.Unlock()
 		}
 	}
+	return reached
 }
 
 func endpointWith(d Device, cluster string) uint8 {
@@ -771,7 +790,37 @@ func (h *Hub) noteUnavailable(ieee string, err error) error {
 	}
 	h.mu.Unlock()
 	h.broadcast(Event{Type: "device", Data: mustDevice(h, ieee)})
+	if isUnreachable(err) {
+		h.startRecovery(ieee)
+	}
 	return mapRadioError(err)
+}
+
+func (h *Hub) startRecovery(ieee string) {
+	key := compactIEEE(ieee)
+	h.recoverMu.Lock()
+	if _, ok := h.recovering[key]; ok {
+		h.recoverMu.Unlock()
+		return
+	}
+	h.recovering[key] = struct{}{}
+	h.recoverMu.Unlock()
+
+	go func() {
+		defer func() {
+			h.recoverMu.Lock()
+			delete(h.recovering, key)
+			h.recoverMu.Unlock()
+		}()
+		for _, delay := range []time.Duration{3 * time.Second, 10 * time.Second, 30 * time.Second, time.Minute, 2 * time.Minute} {
+			time.Sleep(delay)
+			if h.readState(key) {
+				h.log.Info("device recovered", "ieee", key)
+				h.broadcast(Event{Type: "device", Data: mustDevice(h, key)})
+				return
+			}
+		}
+	}()
 }
 
 func displayRadioError(err error) string {

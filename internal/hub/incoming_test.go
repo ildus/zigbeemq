@@ -127,11 +127,11 @@ func TestReportsUpdateState(t *testing.T) {
 	if g.Occupancy == nil || !*g.Occupancy || g.Kind != KindMotion || !g.HasOccupancy {
 		t.Fatalf("bad motion: %+v", g)
 	}
-	d = Device{IEEE: "00124b0000000002", Name: "light", Kind: KindLight}
+	d = Device{IEEE: "00124b0000000002", Name: "light", Kind: KindLight, Error: unavailableText}
 	h = testHub(t, d)
 	h.applyLightReport(d.IEEE, report(zcl.AttrOnOff, zcl.TypeBoolean, 1), uint16(zcl.ClusterOnOff))
 	g, _ = h.Device(d.IEEE)
-	if g.On == nil || !*g.On || !g.Reachable || g.LastSeen == nil {
+	if g.On == nil || !*g.On || !g.Reachable || g.Error != "" || g.LastSeen == nil || g.LastSeenMs == 0 {
 		t.Fatalf("bad light: %+v", g)
 	}
 }

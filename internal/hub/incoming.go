@@ -665,7 +665,9 @@ func (h *Hub) applyLightReport(ieee string, frame *zcl.Frame, cluster uint16) {
 		}
 		dev.On = &on
 		dev.Reachable = true
+		dev.Error = ""
 		dev.LastSeen = &now
+		dev.LastSeenMs = now.UnixMilli()
 		changed = true
 	}
 	h.mu.Unlock()
