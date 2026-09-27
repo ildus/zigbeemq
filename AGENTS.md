@@ -41,6 +41,7 @@ Rules for agents in this repo. README — how to run.
 ## Workflow
 
 - Change only what the task needs. Do not drive-by refactor.
+- After Go edits: `gofmt -w` on changed files. CI fails on `gofmt -l .`.
 - Do not commit until asked.
 - Restart on a PC: build to `/tmp/zigbeemq.bin` or `./zigbeemq`, kill the old pid, pause 2–3 s, run `-port /dev/ttyUSB0 -listen 127.0.0.1:8088 -data <repo>/data -mqtt tcp://bb:1883`.
 - On the router: `./scripts/deploy-openwrt.sh` (SSH `router`, arm64, `/etc/init.d/zigbeemq`). No FormNetwork.
