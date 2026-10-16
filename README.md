@@ -1,8 +1,13 @@
 # zigbeemq
 
-Zigbee → HTTP + MQTT bridge in Go. A zigbee2mqtt-style bridge, not a z2m clone: one binary, a simple UI, and topics compatible with `zigbee2mqtt/<name>`.
+Zigbee → HTTP + MQTT bridge in Go. A zigbee2mqtt-style bridge, not a z2m clone:
+one binary, a simple UI, and topics compatible with `zigbee2mqtt/<name>`.
 
-Target host is OpenWrt. The stick runs on `router`.
+Supports currently only limited number of devices, but the idea is connect
+something undefined and that add support for it using LLM.
+
+Target host is OpenWrt. The stick runs on router. The Deploy script expects
+`router` host in ssh config.
 
 ![ZigbeeMQ device list](screen.png)
 
