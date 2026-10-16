@@ -12,6 +12,7 @@ type Kind string
 const (
 	KindLight   Kind = "light"
 	KindPlug    Kind = "plug"
+	KindRelay   Kind = "relay"
 	KindSwitch  Kind = "switch"
 	KindSensor  Kind = "sensor"
 	KindMotion  Kind = "motion"
@@ -20,7 +21,7 @@ const (
 
 func ValidKind(k Kind) bool {
 	switch k {
-	case KindLight, KindPlug, KindSwitch, KindSensor, KindMotion, KindUnknown:
+	case KindLight, KindPlug, KindRelay, KindSwitch, KindSensor, KindMotion, KindUnknown:
 		return true
 	default:
 		return false
@@ -67,6 +68,9 @@ func inferKind(manufacturer, model string, inClusters []uint16) Kind {
 	}
 	if hasCluster(inClusters, zcl.ClusterOnOff) && hasCluster(inClusters, zcl.ClusterLevelControl) {
 		return KindLight
+	}
+	if model == "ZBMINIR2" || model == "MINI-ZBD" {
+		return KindRelay
 	}
 	if hasCluster(inClusters, zcl.ClusterOnOff) {
 		return KindPlug

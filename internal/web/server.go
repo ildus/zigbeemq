@@ -29,6 +29,9 @@ func New(h *hub.Hub) *Server {
 	s.mux.HandleFunc("POST /api/devices/{ieee}/on", s.on)
 	s.mux.HandleFunc("POST /api/devices/{ieee}/off", s.off)
 	s.mux.HandleFunc("POST /api/devices/{ieee}/brightness", s.brightness)
+	s.mux.HandleFunc("POST /api/devices/{ieee}/toggle", s.toggle)
+	s.mux.HandleFunc("GET /api/devices/{ieee}/relay", s.readRelay)
+	s.mux.HandleFunc("PATCH /api/devices/{ieee}/relay", s.patchRelay)
 	s.mux.HandleFunc("POST /api/devices/{ieee}/interview", s.interview)
 	s.mux.HandleFunc("PATCH /api/devices/{ieee}", s.update)
 	s.mux.HandleFunc("DELETE /api/devices/{ieee}", s.remove)
@@ -121,6 +124,48 @@ func (s *Server) brightness(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": "brightness", "percent": body.Percent})
+}
+
+func (s *Server) toggle(w http.ResponseWriter, r *http.Request) {
+	if err := s.hub.Toggle(r.Context(), r.PathValue("ieee")); err != nil {
+		writeErr(w, deviceStatus(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"ok": "toggle"})
+}
+
+func (s *Server) readRelay(w http.ResponseWriter, r *http.Request) {
+	relay, err := s.hub.ReadRelay(r.Context(), r.PathValue("ieee"))
+	if err != nil {
+		writeErr(w, deviceStatus(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, relay)
+}
+
+func (s *Server) patchRelay(w http.ResponseWriter, r *http.Request) {
+	var body hub.RelayPatch
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	relay, err := s.hub.ApplyRelay(r.Context(), r.PathValue("ieee"), body)
+	if err != nil {
+		writeErr(w, deviceStatus(err), err)
+		return
+	}
+	writeJSON(w, http.StatusOK, relay)
+}
+
+func deviceStatus(err error) int {
+	switch {
+	case hub.IsNotFound(err):
+		return http.StatusNotFound
+	case hub.IsNotRelay(err), hub.IsRelayInput(err):
+		return http.StatusBadRequest
+	default:
+		return http.StatusBadGateway
+	}
 }
 
 func (s *Server) interview(w http.ResponseWriter, r *http.Request) {

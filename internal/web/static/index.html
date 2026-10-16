@@ -66,7 +66,7 @@
       flex-wrap: wrap;
     }
     .bar .join { margin-right: auto; }
-    button, .btn, select, input[type=text] {
+    button, .btn, select, input[type=text], input[type=number] {
       background: var(--panel);
       color: var(--text);
       border: 1px solid var(--line);
@@ -236,6 +236,13 @@
     .dialog h3 { margin: 0; font-size: 1.05rem; }
     .dialog label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.8rem; color: var(--muted); }
     .dialog .actions { justify-content: space-between; margin-top: 0.3rem; }
+    .dialog.wide { width: min(520px, 100%); }
+    .relay { display: flex; flex-direction: column; gap: 0.55rem; border-top: 1px solid var(--line); padding-top: 0.7rem; }
+    .relay[hidden] { display: none; }
+    .relay h4 { margin: 0; font-size: 0.78rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+    .dialog label.check { flex-direction: row; align-items: center; gap: 0.45rem; }
+    .check input { margin: 0; }
+    input[type=number] { width: 8rem; }
   </style>
 </head>
 <body>
@@ -278,6 +285,37 @@
       <label><span data-i18n="type">Type</span>
         <select id="edit-kind"></select>
       </label>
+      <div class="relay" id="edit-relay" hidden>
+        <h4>ZBMINI-R2</h4>
+        <label><span data-i18n="powerOnBehavior">Power-on behavior</span>
+          <select id="relay-power"></select>
+        </label>
+        <label><span data-i18n="externalTrigger">External switch</span>
+          <select id="relay-trigger"></select>
+        </label>
+        <label class="check"><input type="checkbox" id="relay-led"> <span data-i18n="networkIndicator">Network indicator</span></label>
+        <label class="check"><input type="checkbox" id="relay-turbo"> <span data-i18n="turboMode">Stronger radio signal</span></label>
+        <label class="check"><input type="checkbox" id="relay-detach"> <span data-i18n="detachRelay">Wall switch does not control the relay</span></label>
+        <label class="check"><input type="checkbox" id="relay-delay-on"> <span data-i18n="delayedState">Delayed power on</span></label>
+        <label><span data-i18n="delayedTime">Delay, seconds</span>
+          <input type="number" id="relay-delay" min="0.5" max="3599.5" step="0.5">
+        </label>
+        <div class="meta" id="relay-status"></div>
+        <label><span data-i18n="inching">Inching</span>
+          <span class="row">
+            <select id="inch-control">
+              <option value="ENABLE">ENABLE</option>
+              <option value="DISABLE">DISABLE</option>
+            </select>
+            <select id="inch-mode">
+              <option value="OFF">OFF</option>
+              <option value="ON">ON</option>
+            </select>
+            <input type="number" id="inch-time" min="0.5" max="3599.5" step="0.5" value="1">
+            <button type="button" id="inch-apply" data-i18n="inchingApply">Set</button>
+          </span>
+        </label>
+      </div>
       <div class="row actions">
         <span class="row">
           <button type="button" class="danger" id="edit-delete" data-i18n="remove">Remove</button>
@@ -295,7 +333,7 @@
     const LANGS = ["en", "ru", "de"];
     const STORAGE_KEY = "zigbeemq.lang";
     const LOCALES = {en: "en-US", ru: "ru-RU", de: "de-DE"};
-    const kinds = ["light", "plug", "switch", "sensor", "motion", "unknown"];
+    const kinds = ["light", "relay", "plug", "switch", "sensor", "motion", "unknown"];
     const I18N = {
       en: {
         connecting: "Connecting…",
@@ -312,6 +350,7 @@
         off: "off",
         waiting: "waiting",
         "kind.light": "light",
+        "kind.relay": "relay",
         "kind.plug": "plug",
         "kind.switch": "switch",
         "kind.sensor": "sensor",
@@ -348,6 +387,25 @@
         "action.release": "release",
         "action.on": "on",
         "action.toggle": "toggle",
+        toggleBtn: "Toggle",
+        externalTrigger: "External switch",
+        networkIndicator: "Network indicator",
+        turboMode: "Stronger radio signal",
+        detachRelay: "Wall switch does not control the relay",
+        delayedState: "Delayed power on",
+        delayedTime: "Delay, seconds",
+        inching: "Inching",
+        inchingApply: "Set",
+        relayReading: "Reading…",
+        powerOnBehavior: "Power-on behavior",
+        "pob.off": "Off",
+        "pob.on": "On",
+        "pob.toggle": "Toggle",
+        "pob.previous": "Previous",
+        "trig.edge": "edge",
+        "trig.pulse": "pulse",
+        "trig.following(off)": "following(off)",
+        "trig.following(on)": "following(on)",
       },
       ru: {
         connecting: "подключение…",
@@ -364,6 +422,7 @@
         off: "выкл",
         waiting: "ожидание",
         "kind.light": "лампа",
+        "kind.relay": "реле",
         "kind.plug": "розетка",
         "kind.switch": "кнопка",
         "kind.sensor": "датчик",
@@ -400,6 +459,25 @@
         "action.release": "отпускание",
         "action.on": "вкл",
         "action.toggle": "переключение",
+        toggleBtn: "Переключить",
+        externalTrigger: "Внешний выключатель",
+        networkIndicator: "Индикатор сети",
+        turboMode: "Усиление радиосигнала",
+        detachRelay: "Выключатель не управляет реле",
+        delayedState: "Задержка включения",
+        delayedTime: "Задержка, секунды",
+        inching: "Импульс",
+        inchingApply: "Задать",
+        relayReading: "Чтение…",
+        powerOnBehavior: "Поведение при включении",
+        "pob.off": "Выкл",
+        "pob.on": "Вкл",
+        "pob.toggle": "Переключение",
+        "pob.previous": "Предыдущее",
+        "trig.edge": "edge",
+        "trig.pulse": "pulse",
+        "trig.following(off)": "following(off)",
+        "trig.following(on)": "following(on)",
       },
       de: {
         connecting: "Verbindung…",
@@ -416,6 +494,7 @@
         off: "aus",
         waiting: "warte",
         "kind.light": "Lampe",
+        "kind.relay": "Relais",
         "kind.plug": "Steckdose",
         "kind.switch": "Taster",
         "kind.sensor": "Sensor",
@@ -452,6 +531,25 @@
         "action.release": "loslassen",
         "action.on": "ein",
         "action.toggle": "umschalten",
+        toggleBtn: "Umschalten",
+        externalTrigger: "Externer Schalter",
+        networkIndicator: "Netzwerkanzeige",
+        turboMode: "Funksignal verstärken",
+        detachRelay: "Schalter steuert das Relais nicht",
+        delayedState: "Einschaltverzögerung",
+        delayedTime: "Verzögerung, Sekunden",
+        inching: "Impuls",
+        inchingApply: "Setzen",
+        relayReading: "Lesen…",
+        powerOnBehavior: "Einschaltverhalten",
+        "pob.off": "Aus",
+        "pob.on": "Ein",
+        "pob.toggle": "Umschalten",
+        "pob.previous": "Vorheriger Zustand",
+        "trig.edge": "edge",
+        "trig.pulse": "pulse",
+        "trig.following(off)": "following(off)",
+        "trig.following(on)": "following(on)",
       },
     };
 
@@ -571,6 +669,7 @@
       langSel.setAttribute("aria-label", t("lang"));
       document.querySelectorAll("[data-i18n]").forEach(el => { el.textContent = t(el.dataset.i18n); });
       fillKindSelect();
+      fillRelaySelects();
       syncFilterMenu();
       syncArchiveBtn();
       if (overlay.classList.contains("show") && overlay.dataset.ieee) {
@@ -611,8 +710,9 @@
       );
       list.innerHTML = sorted.map(d => {
         const on = d.on === true;
-        const showPower = d.has_on_off || d.kind === "light" || d.kind === "plug";
+        const showPower = d.has_on_off || d.kind === "light" || d.kind === "plug" || d.kind === "relay";
         const showLevel = d.has_level || d.kind === "light";
+        const mini = isMini(d);
         const chips = (d.clusters || []).map(c => `<span class="chip">${escapeHtml(c)}</span>`).join("");
         const mark = String(d.last_seen_ms || d.last_seen || d.click_seq || "");
         const pulse = !!(mark && seenAt[d.ieee] && seenAt[d.ieee] !== mark);
@@ -643,9 +743,11 @@
             <span class="dot ${d.reachable ? (on || d.occupancy ? "on" : "") : "bad"}"></span>
             <span class="meta">${statusText(d)}</span>
           </div>
+          ${mini && d.relay && d.relay.power_on_behavior ? `<div class="meta">${escapeHtml(t("powerOnBehavior"))}: ${escapeHtml(t("pob." + d.relay.power_on_behavior))}</div>` : ""}
           ${showPower ? `<div class="row">
             <button data-act="on" data-ieee="${d.ieee}">${t("onBtn")}</button>
             <button data-act="off" data-ieee="${d.ieee}">${t("offBtn")}</button>
+            ${mini ? `<button data-act="toggle" data-ieee="${d.ieee}">${t("toggleBtn")}</button>` : ""}
           </div>` : ""}
           ${showLevel ? `<input type="range" min="0" max="100" value="${d.brightness ?? 0}" data-act="bri" data-ieee="${d.ieee}">` : ""}
           ${offline ? `<div class="unavail"><strong>${t("unavailable")}</strong> · ${t("noLink")}</div>` : ""}
@@ -693,6 +795,65 @@
     const editTitle = document.getElementById("edit-title");
     const editArchive = document.getElementById("edit-archive");
 
+    const POWER_ON = ["off", "on", "toggle", "previous"];
+    const TRIGGERS = ["edge", "pulse", "following(off)", "following(on)"];
+    const editRelay = document.getElementById("edit-relay");
+    const relayPower = document.getElementById("relay-power");
+    const relayTrigger = document.getElementById("relay-trigger");
+    const relayLed = document.getElementById("relay-led");
+    const relayTurbo = document.getElementById("relay-turbo");
+    const relayDetach = document.getElementById("relay-detach");
+    const relayDelayOn = document.getElementById("relay-delay-on");
+    const relayDelay = document.getElementById("relay-delay");
+    const relayStatus = document.getElementById("relay-status");
+    const inchControl = document.getElementById("inch-control");
+    const inchMode = document.getElementById("inch-mode");
+    const inchTime = document.getElementById("inch-time");
+    const inchApply = document.getElementById("inch-apply");
+    let relayTouched = false;
+    let relayLoaded = false;
+    let relayReady = Promise.resolve();
+    [relayPower, relayTrigger, relayLed, relayTurbo, relayDetach, relayDelayOn, relayDelay].forEach(el => {
+      el.addEventListener("change", () => { relayTouched = true; });
+      el.addEventListener("input", () => { relayTouched = true; });
+    });
+
+    function isMini(d) {
+      return !!d && (d.model === "ZBMINIR2" || d.model === "MINI-ZBD");
+    }
+
+    function fillRelaySelects() {
+      const power = relayPower.value;
+      const trigger = relayTrigger.value;
+      relayPower.innerHTML = POWER_ON.map(v => `<option value="${v}">${t("pob." + v)}</option>`).join("");
+      relayTrigger.innerHTML = TRIGGERS.map(v => `<option value="${v}">${t("trig." + v)}</option>`).join("");
+      if (power) relayPower.value = power;
+      if (trigger) relayTrigger.value = trigger;
+    }
+
+    function fillRelay(r) {
+      r = r || {};
+      relayPower.value = POWER_ON.includes(r.power_on_behavior) ? r.power_on_behavior : "off";
+      relayTrigger.value = TRIGGERS.includes(r.external_trigger_mode) ? r.external_trigger_mode : "edge";
+      relayLed.checked = !!r.network_indicator;
+      relayTurbo.checked = !!r.turbo_mode;
+      relayDetach.checked = !!r.detach_relay_mode;
+      relayDelayOn.checked = !!r.delayed_power_on_state;
+      relayDelay.value = r.delayed_power_on_time != null ? String(r.delayed_power_on_time) : "0.5";
+    }
+
+    function relayBody() {
+      return {
+        power_on_behavior: relayPower.value,
+        external_trigger_mode: relayTrigger.value,
+        network_indicator: relayLed.checked,
+        turbo_mode: relayTurbo.checked,
+        detach_relay_mode: relayDetach.checked,
+        delayed_power_on_state: relayDelayOn.checked,
+        delayed_power_on_time: Number(relayDelay.value),
+      };
+    }
+
     function openEdit(ieee) {
       const d = devices.find(x => x.ieee === ieee);
       if (!d) return;
@@ -702,6 +863,27 @@
       editName.value = d.name || "";
       editKind.value = d.kind || "unknown";
       syncArchiveBtn();
+      const mini = isMini(d);
+      editRelay.hidden = !mini;
+      editForm.classList.toggle("wide", mini);
+      relayStatus.textContent = "";
+      relayTouched = false;
+      relayLoaded = false;
+      relayReady = Promise.resolve();
+      if (mini) {
+        fillRelaySelects();
+        fillRelay(d.relay);
+        relayStatus.textContent = t("relayReading");
+        relayReady = api(`/api/devices/${ieee}/relay`).then(r => r.json()).then(relay => {
+          if (overlay.dataset.ieee !== ieee) return;
+          if (!relayTouched) fillRelay(relay);
+          relayLoaded = true;
+          relayStatus.textContent = "";
+        }).catch(err => {
+          if (overlay.dataset.ieee !== ieee) return;
+          relayStatus.textContent = err.message;
+        });
+      }
       overlay.classList.add("show");
       editName.focus();
       editName.select();
@@ -721,6 +903,19 @@
       return res;
     }
 
+    async function saveRelay(ieee) {
+      if (editRelay.hidden) return;
+      await relayReady;
+      if (!relayLoaded && !relayTouched) return;
+      const res = await api(`/api/devices/${ieee}/relay`, {
+        method: "PATCH",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(relayBody()),
+      });
+      fillRelay(await res.json());
+      relayTouched = false;
+    }
+
     async function saveMeta(ieee) {
       const name = editName.value.trim();
       const kind = editKind.value;
@@ -729,6 +924,7 @@
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({name, kind}),
       });
+      await saveRelay(ieee);
       closeEdit();
       await load();
     }
@@ -753,6 +949,7 @@
       try {
         if (act === "on") await api(`/api/devices/${ieee}/on`, {method:"POST"});
         if (act === "off") await api(`/api/devices/${ieee}/off`, {method:"POST"});
+        if (act === "toggle") await api(`/api/devices/${ieee}/toggle`, {method:"POST"});
         if (act === "interview") await api(`/api/devices/${ieee}/interview`, {method:"POST"});
         await load();
       } catch (err) {
@@ -768,6 +965,30 @@
       catch (err) { alert(err.message); }
     });
     document.getElementById("edit-cancel").onclick = closeEdit;
+    inchApply.onclick = async () => {
+      const ieee = overlay.dataset.ieee;
+      if (!ieee) return;
+      inchApply.disabled = true;
+      relayStatus.textContent = "";
+      try {
+        await api(`/api/devices/${ieee}/relay`, {
+          method: "PATCH",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({
+            inching_control_set: {
+              inching_control: inchControl.value,
+              inching_mode: inchMode.value,
+              inching_time: Number(inchTime.value),
+            },
+          }),
+        });
+        relayStatus.textContent = "";
+      } catch (err) {
+        relayStatus.textContent = err.message;
+      } finally {
+        inchApply.disabled = false;
+      }
+    };
     overlay.addEventListener("click", (e) => { if (e.target === overlay) closeEdit(); });
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Escape") return;

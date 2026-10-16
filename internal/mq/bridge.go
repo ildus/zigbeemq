@@ -127,8 +127,20 @@ func (b *Bridge) handleSet(topic string, payload []byte) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
 	defer cancel()
+
+	if hub.IsSonoffMini(d) {
+		if patch, ok := relayPatch(payload); ok {
+			if _, err := b.hub.ApplyRelay(ctx, d.IEEE, patch); err != nil {
+				if hub.IsUnavailable(err) {
+					b.log.Info("mqtt relay unavailable", "name", name)
+				} else {
+					b.log.Warn("mqtt relay", "name", name, "err", err)
+				}
+			}
+		}
+	}
 
 	if brightness != nil {
 		if err := b.hub.SetBrightness(ctx, d.IEEE, *brightness); err != nil {
@@ -142,8 +154,21 @@ func (b *Bridge) handleSet(topic string, payload []byte) {
 	if state != nil && brightness == nil {
 		on := *state
 		if strings.EqualFold(*state, "toggle") {
-			cur := d.On != nil && *d.On
-			on = boolString(!cur)
+			var err error
+			if hub.IsSonoffMini(d) {
+				err = b.hub.Toggle(ctx, d.IEEE)
+			} else {
+				cur := d.On != nil && *d.On
+				err = b.hub.Turn(ctx, d.IEEE, !cur)
+			}
+			if err != nil {
+				if hub.IsUnavailable(err) {
+					b.log.Info("mqtt turn unavailable", "name", name)
+				} else {
+					b.log.Warn("mqtt turn", "name", name, "err", err)
+				}
+			}
+			return
 		}
 		if err := b.hub.Turn(ctx, d.IEEE, strings.EqualFold(on, "on") || on == "1" || on == "true"); err != nil {
 			if hub.IsUnavailable(err) {
@@ -155,11 +180,12 @@ func (b *Bridge) handleSet(topic string, payload []byte) {
 	}
 }
 
-func boolString(on bool) string {
-	if on {
-		return "ON"
+func relayPatch(payload []byte) (hub.RelayPatch, bool) {
+	var p hub.RelayPatch
+	if json.Unmarshal(payload, &p) != nil || p.Empty() {
+		return hub.RelayPatch{}, false
 	}
-	return "OFF"
+	return p, true
 }
 
 func setName(base, topic string) (string, bool) {
@@ -248,6 +274,29 @@ func (b *Bridge) publishDevice(d hub.Device) {
 	}
 	if d.Occupancy != nil {
 		body["occupancy"] = *d.Occupancy
+	}
+	if d.Relay != nil {
+		if d.Relay.PowerOnBehavior != "" {
+			body["power_on_behavior"] = d.Relay.PowerOnBehavior
+		}
+		if d.Relay.NetworkIndicator != nil {
+			body["network_indicator"] = *d.Relay.NetworkIndicator
+		}
+		if d.Relay.TurboMode != nil {
+			body["turbo_mode"] = *d.Relay.TurboMode
+		}
+		if d.Relay.DelayedPowerOnState != nil {
+			body["delayed_power_on_state"] = *d.Relay.DelayedPowerOnState
+		}
+		if d.Relay.DelayedPowerOnTime != nil {
+			body["delayed_power_on_time"] = *d.Relay.DelayedPowerOnTime
+		}
+		if d.Relay.DetachRelayMode != nil {
+			body["detach_relay_mode"] = *d.Relay.DetachRelayMode
+		}
+		if d.Relay.ExternalTriggerMode != "" {
+			body["external_trigger_mode"] = d.Relay.ExternalTriggerMode
+		}
 	}
 	if len(body) == 0 {
 		return

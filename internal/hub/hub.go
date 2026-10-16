@@ -46,6 +46,7 @@ type Device struct {
 	HasOccupancy bool       `json:"has_occupancy"`
 	Clusters     []string   `json:"clusters,omitempty"`
 	Endpoints    []Endpoint `json:"endpoints,omitempty"`
+	Relay        *Relay     `json:"relay,omitempty"`
 	UserLabel    bool       `json:"user_label,omitempty"`
 	New          bool       `json:"new,omitempty"`
 	Archived     bool       `json:"archived,omitempty"`
@@ -101,6 +102,11 @@ type Hub struct {
 	motionReady map[string]struct{}
 	recovering  map[string]struct{}
 	recoverMu   sync.Mutex
+	relayBusy   map[string]struct{}
+	relayMu     sync.Mutex
+	afMu        sync.Mutex
+	afWait      *afSlot
+	zclSeq      uint8
 	coordIEEE   [8]byte
 	subs        map[subscriber]struct{}
 	permitUntil time.Time
@@ -124,6 +130,7 @@ func New(log *slog.Logger, dataDir string) *Hub {
 		bound:       make(map[string]struct{}),
 		motionReady: make(map[string]struct{}),
 		recovering:  make(map[string]struct{}),
+		relayBusy:   make(map[string]struct{}),
 		subs:        make(map[subscriber]struct{}),
 	}
 }
@@ -136,21 +143,40 @@ func (h *Hub) Open(ctx context.Context, serialPort string) error {
 	h.adapter = a
 	h.loadCache()
 	a.OnDeviceEvent(func(ev adapter.DeviceEvent) {
-		ieee := formatIEEE(ev.IEEEAddr)
-		h.log.Info("device event", "type", ev.Type, "ieee", ieee)
+		ieee := eventIEEE(ev)
+		var nwk uint16
+		if ev.Device != nil {
+			nwk = ev.Device.NwkAddr
+		}
+		h.log.Info("device event", "type", ev.Type, "ieee", ieee, "nwk", nwk)
+		// Join indications carry IEEE on Device; Event.IEEEAddr is only set for leave.
+		// Record the device before Refresh: a new relay often is not in the address
+		// table yet, and a later snapshot must not be the only way it enters the list.
 		if ev.Type == adapter.DeviceEventJoined {
-			h.unforget(ieee)
+			if isZeroIEEE(ieee) {
+				h.log.Warn("join without ieee")
+			} else {
+				h.noteJoined(ieee, nwk)
+			}
 		}
 		go func() {
 			c, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 			defer cancel()
 			if err := h.Refresh(c); err != nil {
 				h.log.Warn("refresh after event", "err", err)
+			}
+			if ev.Type != adapter.DeviceEventJoined || isZeroIEEE(ieee) {
 				return
 			}
-			if ev.Type == adapter.DeviceEventJoined {
-				h.readState(ieee)
-				h.broadcast(Event{Type: "device", Data: mustDevice(h, ieee)})
+			h.noteJoined(ieee, nwk)
+			d, err := h.Device(ieee)
+			if err != nil || d.Archived || d.NwkAddr == 0 {
+				return
+			}
+			ictx, icancel := context.WithTimeout(context.Background(), interviewTimeout+time.Second)
+			defer icancel()
+			if err := h.Interview(ictx, ieee); err != nil {
+				h.log.Info("interview after join", "ieee", ieee, "err", err)
 			}
 		}()
 	})
@@ -166,7 +192,11 @@ func (h *Hub) Open(ctx context.Context, serialPort string) error {
 	} else {
 		h.coordIEEE = ieee
 	}
-	return h.Refresh(ctx)
+	if err := h.Refresh(ctx); err != nil {
+		return err
+	}
+	h.scheduleRelaySetup()
+	return nil
 }
 
 func (h *Hub) Close() error {
@@ -345,6 +375,9 @@ func (h *Hub) Interview(ctx context.Context, ieee string) error {
 	}
 	h.saveCache()
 	h.broadcast(Event{Type: "device", Data: mustDevice(h, dev.IEEE)})
+	if IsSonoffMini(mustDevice(h, dev.IEEE)) {
+		go h.setupRelay(dev.IEEE)
+	}
 	return nil
 }
 
@@ -473,10 +506,65 @@ func (h *Hub) Remove(ctx context.Context, ieee string) error {
 	return nil
 }
 
-func (h *Hub) unforget(ieee string) {
+// noteJoined keeps a device that just joined, even when the coordinator
+// address table does not list it yet. A zero IEEE is ignored.
+func (h *Hub) noteJoined(ieee string, nwk uint16) bool {
+	key := compactIEEE(ieee)
+	if isZeroIEEE(key) {
+		return false
+	}
 	h.mu.Lock()
-	delete(h.forgotten, compactIEEE(ieee))
+	delete(h.forgotten, key)
+	d, ok := h.devices[key]
+	if !ok {
+		d = &Device{
+			IEEE:     key,
+			Name:     key,
+			Kind:     KindUnknown,
+			Endpoint: 1,
+			New:      true,
+		}
+		h.devices[key] = d
+		h.log.Info("new device", "ieee", key, "nwk", nwk)
+	}
+	if nwk != 0 {
+		d.NwkAddr = nwk
+	}
+	d.Reachable = true
+	d.Error = ""
+	now := time.Now()
+	d.LastSeen = &now
+	d.LastSeenMs = now.UnixMilli()
 	h.mu.Unlock()
+	h.saveCache()
+	h.broadcast(Event{Type: "device", Data: mustDevice(h, key)})
+	return true
+}
+
+func eventIEEE(ev adapter.DeviceEvent) string {
+	if ev.Device != nil {
+		if ieee := formatIEEE(ev.Device.IEEEAddr); !isZeroIEEE(ieee) {
+			return ieee
+		}
+	}
+	ieee := formatIEEE(ev.IEEEAddr)
+	if isZeroIEEE(ieee) {
+		return ""
+	}
+	return ieee
+}
+
+func isZeroIEEE(ieee string) bool {
+	key := compactIEEE(ieee)
+	if len(key) != 16 {
+		return true
+	}
+	for _, c := range key {
+		if c != '0' {
+			return false
+		}
+	}
+	return true
 }
 
 func (h *Hub) readState(ieee string) bool {
@@ -486,7 +574,7 @@ func (h *Hub) readState(ieee string) bool {
 	}
 	now := time.Now()
 	reached := false
-	if d.HasOnOff || d.Kind == KindLight || d.Kind == KindPlug {
+	if d.HasOnOff || d.Kind == KindLight || d.Kind == KindPlug || d.Kind == KindRelay {
 		ctx, cancel := context.WithTimeout(context.Background(), readTimeout)
 		h.radio.Lock()
 		on, err := h.adapter.GetOnOffState(ctx, d.NwkAddr, d.Endpoint)
@@ -631,6 +719,24 @@ func (h *Hub) Turn(ctx context.Context, ieee string, on bool) error {
 	return nil
 }
 
+func (h *Hub) Toggle(ctx context.Context, ieee string) error {
+	d, err := h.Device(ieee)
+	if err != nil {
+		return err
+	}
+	c, cancel := context.WithTimeout(ctx, commandTimeout)
+	defer cancel()
+	h.radio.Lock()
+	err = h.adapter.Toggle(c, d.NwkAddr, d.Endpoint)
+	h.radio.Unlock()
+	if err != nil {
+		return h.noteUnavailable(ieee, err)
+	}
+	h.readState(ieee)
+	h.broadcast(Event{Type: "device", Data: mustDevice(h, ieee)})
+	return nil
+}
+
 func (h *Hub) SetBrightness(ctx context.Context, ieee string, percent uint8) error {
 	if percent > 100 {
 		percent = 100
@@ -745,14 +851,22 @@ func (h *Hub) loadCache() {
 		h.log.Warn("cache decode", "err", err)
 		return
 	}
+	changed := false
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	for ieee, d := range cf.Devices {
 		cp := d
+		if cp.Kind == KindPlug && IsSonoffMini(cp) {
+			cp.Kind = KindRelay
+			changed = true
+		}
 		h.devices[compactIEEE(ieee)] = &cp
 	}
 	for _, ieee := range cf.Forgotten {
 		h.forgotten[compactIEEE(ieee)] = struct{}{}
+	}
+	h.mu.Unlock()
+	if changed {
+		h.saveCache()
 	}
 }
 

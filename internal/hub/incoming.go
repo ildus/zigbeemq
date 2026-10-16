@@ -65,12 +65,38 @@ func (h *Hub) hookIncoming() {
 			h.log.Info("incoming parse", "cmd", fmt.Sprintf("0x%02X", frame.CommandID), "err", err)
 			return
 		}
+		h.noteAF(msg)
 		select {
 		case h.incoming <- msg:
 		default:
 			h.log.Warn("incoming queue full")
 		}
 	})
+}
+
+// afSlot receives AF frames that the goznp waiter did not take.
+// WaitForIncomingMsg only matches the short incoming command and gives up at 5s;
+// ZBMINIR2 replies land just after that, sometimes as the extended command.
+type afSlot struct {
+	nwk     uint16
+	cluster uint16
+	ch      chan *znp.IncomingMessage
+}
+
+func (h *Hub) noteAF(msg *znp.IncomingMessage) {
+	if msg == nil {
+		return
+	}
+	h.afMu.Lock()
+	slot := h.afWait
+	h.afMu.Unlock()
+	if slot == nil || msg.SrcAddr != slot.nwk || msg.ClusterID != slot.cluster {
+		return
+	}
+	select {
+	case slot.ch <- msg:
+	default:
+	}
 }
 
 func (h *Hub) expandHAEndpoint(ctx context.Context) error {
@@ -233,7 +259,7 @@ func (h *Hub) handleIncoming(msg *znp.IncomingMessage) {
 		return
 	}
 
-	if d.Kind == KindLight || d.Kind == KindPlug {
+	if d.Kind == KindLight || d.Kind == KindPlug || d.Kind == KindRelay {
 		h.applyLightReport(d.IEEE, frame, msg.ClusterID)
 		return
 	}

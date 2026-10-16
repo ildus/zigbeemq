@@ -45,7 +45,17 @@ func TestNumericHelpers(t *testing.T) {
 	if clamp(-1, 0, 10) != 0 || clamp(11, 0, 10) != 10 || clamp(5, 0, 10) != 5 {
 		t.Fatal("clamp")
 	}
-	if boolString(true) != "ON" || boolString(false) != "OFF" {
-		t.Fatal("boolString")
+}
+
+func TestRelayPatch(t *testing.T) {
+	p, ok := relayPatch([]byte(`{"state":"ON","power_on_behavior":"previous"}`))
+	if !ok || p.PowerOnBehavior == nil || *p.PowerOnBehavior != "previous" {
+		t.Fatalf("%+v %v", p, ok)
+	}
+	if _, ok := relayPatch([]byte(`ON`)); ok {
+		t.Fatal("plain on")
+	}
+	if _, ok := relayPatch([]byte(`{"state":"OFF"}`)); ok {
+		t.Fatal("state only")
 	}
 }

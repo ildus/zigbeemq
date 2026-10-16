@@ -27,6 +27,12 @@ func TestDevicesResponse(t *testing.T) {
 		t.Fatalf("response: %d %v %s", w.Code, w.Header(), w.Body.String())
 	}
 }
+func TestRelayMissing(t *testing.T) {
+	w := req(t, testServer(t), "GET", "/api/devices/0011223344556677/relay", "")
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+}
 func TestMethodNotAllowed(t *testing.T) {
 	if w := req(t, testServer(t), "POST", "/api/devices", ""); w.Code != http.StatusNotFound {
 		t.Fatalf("status=%d", w.Code)
