@@ -47,6 +47,16 @@ func TestNumericHelpers(t *testing.T) {
 	}
 }
 
+func TestDiscoveryIdentity(t *testing.T) {
+	ieee := "a4c138b3ff923781"
+	if got := discoveryID(ieee, "light"); got != "0xa4c138b3ff923781_light_zigbee2mqtt" {
+		t.Fatalf("unique id %q", got)
+	}
+	if got := discoveryTopic("light", ieee, "light"); got != "homeassistant/light/zigbeemq_a4c138b3ff923781_light/config" {
+		t.Fatalf("topic %q", got)
+	}
+}
+
 func TestRelayPatch(t *testing.T) {
 	p, ok := relayPatch([]byte(`{"state":"ON","power_on_behavior":"previous"}`))
 	if !ok || p.PowerOnBehavior == nil || *p.PowerOnBehavior != "previous" {

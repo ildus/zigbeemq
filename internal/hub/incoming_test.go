@@ -2,10 +2,12 @@ package hub
 
 import (
 	"encoding/binary"
-	"github.com/marstid/goznp/pkg/zcl"
 	"io"
 	"log/slog"
 	"testing"
+
+	"github.com/marstid/goznp/pkg/adapter"
+	"github.com/marstid/goznp/pkg/zcl"
 )
 
 func testHub(t *testing.T, ds ...Device) *Hub {
@@ -83,6 +85,10 @@ func TestParseAFIncomingExtMalformed(t *testing.T) {
 func report(attr zcl.AttributeID, typ zcl.DataType, v byte) *zcl.Frame {
 	return &zcl.Frame{Control: zcl.FrameControl{FrameType: zcl.FrameTypeGlobal}, CommandID: uint8(zcl.CmdReportAttributes), Payload: []byte{byte(attr), byte(attr >> 8), byte(typ), v}}
 }
+
+func report16(attr zcl.AttributeID, typ zcl.DataType, v uint16) *zcl.Frame {
+	return &zcl.Frame{Control: zcl.FrameControl{FrameType: zcl.FrameTypeGlobal}, CommandID: uint8(zcl.CmdReportAttributes), Payload: []byte{byte(attr), byte(attr >> 8), byte(typ), byte(v), byte(v >> 8)}}
+}
 func TestDecodeAction(t *testing.T) {
 	cf := func(c uint8) *zcl.Frame {
 		return &zcl.Frame{Control: zcl.FrameControl{FrameType: zcl.FrameTypeCluster}, CommandID: c}
@@ -133,6 +139,51 @@ func TestReportsUpdateState(t *testing.T) {
 	g, _ = h.Device(d.IEEE)
 	if g.On == nil || !*g.On || !g.Reachable || g.Error != "" || g.LastSeen == nil || g.LastSeenMs == 0 {
 		t.Fatalf("bad light: %+v", g)
+	}
+}
+
+func TestSensorReportsUpdateState(t *testing.T) {
+	d := Device{IEEE: "00124b0000000004", Name: "climate", Kind: KindSensor}
+	h := testHub(t, d)
+	if !h.applySensorReport(d.IEEE, report16(zcl.AttrTempMeasuredValue, zcl.TypeInt16, 0xfdf3), uint16(zcl.ClusterTempMeasurement)) {
+		t.Fatal("temperature not handled")
+	}
+	if !h.applySensorReport(d.IEEE, report16(zcl.AttrHumidityMeasuredValue, zcl.TypeUint16, 4567), uint16(zcl.ClusterHumidityMeas)) {
+		t.Fatal("humidity not handled")
+	}
+	if !h.applySensorReport(d.IEEE, report(zcl.AttrPowerBatteryPercentage, zcl.TypeUint8, 173), uint16(zcl.ClusterPowerConfig)) {
+		t.Fatal("battery not handled")
+	}
+	g, _ := h.Device(d.IEEE)
+	if g.Temperature == nil || *g.Temperature != -5.25 || g.Humidity == nil || *g.Humidity != 45.67 || g.Battery == nil || *g.Battery != 86.5 {
+		t.Fatalf("bad sensor state: %+v", g)
+	}
+	if !g.Reachable || g.LastSeen == nil || g.LastSeenMs == 0 {
+		t.Fatalf("sensor not marked seen: %+v", g)
+	}
+
+	if h.applySensorReport(d.IEEE, report16(zcl.AttrTempMeasuredValue, zcl.TypeInt16, 0x8000), uint16(zcl.ClusterTempMeasurement)) {
+		t.Fatal("invalid temperature handled")
+	}
+	if h.applySensorReport(d.IEEE, report16(zcl.AttrHumidityMeasuredValue, zcl.TypeUint16, 0xffff), uint16(zcl.ClusterHumidityMeas)) {
+		t.Fatal("invalid humidity handled")
+	}
+	if h.applySensorReport(d.IEEE, report(zcl.AttrPowerBatteryPercentage, zcl.TypeUint8, 0xff), uint16(zcl.ClusterPowerConfig)) {
+		t.Fatal("invalid battery handled")
+	}
+}
+
+func TestPartialInterviewPreservesMetadata(t *testing.T) {
+	d := Device{
+		Manufacturer: "SONOFF",
+		Model:        "SNZB-02D",
+		Kind:         KindSensor,
+		Clusters:     []string{"Basic", "TemperatureMeasurement"},
+		Endpoints:    []Endpoint{{ID: 1, In: []string{"Basic", "TemperatureMeasurement"}}},
+	}
+	applyInterview(&d, &adapter.InterviewResult{Endpoints: []adapter.EndpointInfo{{Endpoint: 1}}})
+	if d.Manufacturer != "SONOFF" || d.Model != "SNZB-02D" || d.Kind != KindSensor || len(d.Clusters) != 2 || len(d.Endpoints) != 1 {
+		t.Fatalf("partial interview erased metadata: %+v", d)
 	}
 }
 

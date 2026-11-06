@@ -49,6 +49,20 @@
     h1 { font-size: 1.15rem; font-weight: 600; margin: 0; letter-spacing: 0.03em; }
     h1 span { color: var(--accent); }
     .meta { color: var(--muted); font-size: 0.85rem; font-variant-numeric: tabular-nums; }
+    .measurements { display: flex; gap: 0.5rem; flex-wrap: nowrap; font-variant-numeric: tabular-nums; }
+    .measurement {
+      flex: 1 1 0;
+      min-width: 0;
+      padding: 0.55rem 0.7rem;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: linear-gradient(145deg, rgba(212, 162, 76, 0.13), rgba(255, 255, 255, 0.025));
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      font-size: 1.15rem;
+      font-weight: 600;
+      text-align: center;
+      white-space: nowrap;
+    }
     .header-end {
       display: flex;
       align-items: center;
@@ -349,6 +363,10 @@
         on: "on",
         off: "off",
         waiting: "waiting",
+        updated: "updated",
+        temperature: "temperature",
+        humidity: "humidity",
+        battery: "battery",
         "kind.light": "light",
         "kind.relay": "relay",
         "kind.plug": "plug",
@@ -421,6 +439,10 @@
         on: "вкл",
         off: "выкл",
         waiting: "ожидание",
+        updated: "обновлено",
+        temperature: "температура",
+        humidity: "влажность",
+        battery: "батарея",
         "kind.light": "лампа",
         "kind.relay": "реле",
         "kind.plug": "розетка",
@@ -493,6 +515,10 @@
         on: "ein",
         off: "aus",
         waiting: "warte",
+        updated: "aktualisiert",
+        temperature: "Temperatur",
+        humidity: "Luftfeuchte",
+        battery: "Batterie",
         "kind.light": "Lampe",
         "kind.relay": "Relais",
         "kind.plug": "Steckdose",
@@ -599,6 +625,14 @@
       });
     }
 
+    function sensorMeasurements(d) {
+      const values = [];
+      if (d.temperature != null) values.push(`<span class="measurement">${Number(d.temperature).toLocaleString(LOCALES[lang] || "en-US", {minimumFractionDigits: 1, maximumFractionDigits: 2})} °C</span>`);
+      if (d.humidity != null) values.push(`<span class="measurement">${Number(d.humidity).toLocaleString(LOCALES[lang] || "en-US", {minimumFractionDigits: 1, maximumFractionDigits: 2})} %</span>`);
+      if (d.battery != null) values.push(`<span class="measurement">${Number(d.battery).toLocaleString(LOCALES[lang] || "en-US", {maximumFractionDigits: 1})} %</span>`);
+      return values.length ? `<div class="measurements">${values.join("")}</div>` : "";
+    }
+
     function statusText(d) {
       if (d.last_click) {
         const clock = formatTime(d);
@@ -613,6 +647,10 @@
       if (d.occupancy === false) return t("occupancyOff");
       if (d.on === true) return t("on");
       if (d.on === false) return t("off");
+      if (d.kind === "sensor" && (d.temperature != null || d.humidity != null || d.battery != null)) {
+        const clock = formatTime(d);
+        return `${t("updated")}${clock ? " · " + clock : ""}`;
+      }
       return t("waiting");
     }
 
@@ -743,6 +781,7 @@
             <span class="dot ${d.reachable ? (on || d.occupancy ? "on" : "") : "bad"}"></span>
             <span class="meta">${statusText(d)}</span>
           </div>
+          ${sensorMeasurements(d)}
           ${mini && d.relay && d.relay.power_on_behavior ? `<div class="meta">${escapeHtml(t("powerOnBehavior"))}: ${escapeHtml(t("pob." + d.relay.power_on_behavior))}</div>` : ""}
           ${showPower ? `<div class="row">
             <button data-act="on" data-ieee="${d.ieee}">${t("onBtn")}</button>

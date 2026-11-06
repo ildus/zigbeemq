@@ -54,6 +54,7 @@ func (b *Bridge) Run(ctx context.Context) error {
 			b.log.Warn("mqtt subscribe", "err", tok.Error())
 		}
 		for _, d := range b.hub.Devices() {
+			b.publishDiscovery(d)
 			b.publishDevice(d)
 		}
 	}
@@ -84,11 +85,13 @@ func (b *Bridge) Run(ctx context.Context) error {
 			switch ev.Type {
 			case "device":
 				if d, ok := ev.Data.(hub.Device); ok {
+					b.publishDiscovery(d)
 					b.publishDevice(d)
 				}
 			case "devices":
 				if list, ok := ev.Data.([]hub.Device); ok {
 					for _, d := range list {
+						b.publishDiscovery(d)
 						b.publishDevice(d)
 					}
 				}
@@ -257,6 +260,108 @@ func clamp(v, lo, hi float64) float64 {
 	return v
 }
 
+func discoveryID(ieee, component string) string {
+	return "0x" + strings.TrimPrefix(strings.ToLower(ieee), "0x") + "_" + component + "_zigbee2mqtt"
+}
+
+func discoveryTopic(component, ieee, object string) string {
+	return "homeassistant/" + component + "/zigbeemq_" + strings.TrimPrefix(strings.ToLower(ieee), "0x") + "_" + object + "/config"
+}
+
+func (b *Bridge) publishDiscovery(d hub.Device) {
+	if d.Archived {
+		return
+	}
+	name := strings.TrimSpace(d.Name)
+	if name == "" {
+		name = d.IEEE
+	}
+	stateTopic := b.cfg.Base + "/" + name
+	commandTopic := stateTopic + "/set"
+	device := map[string]any{
+		"identifiers":  []string{"zigbee2mqtt_0x" + strings.TrimPrefix(strings.ToLower(d.IEEE), "0x")},
+		"name":         name,
+		"manufacturer": d.Manufacturer,
+		"model":        d.Model,
+	}
+	publish := func(component, object string, config map[string]any) {
+		config["unique_id"] = discoveryID(d.IEEE, object)
+		config["device"] = device
+		config["availability_topic"] = b.cfg.Base + "/bridge/state"
+		config["availability_template"] = "{{ value_json.state }}"
+		config["payload_available"] = "online"
+		config["payload_not_available"] = "offline"
+		raw, err := json.Marshal(config)
+		if err == nil {
+			b.publishRaw(discoveryTopic(component, d.IEEE, object), raw, true)
+		}
+	}
+
+	if d.Kind == hub.KindLight {
+		publish("light", "light", map[string]any{
+			"name":                  nil,
+			"state_topic":           stateTopic,
+			"command_topic":         commandTopic,
+			"schema":                "json",
+			"brightness":            true,
+			"brightness_scale":      254,
+			"supported_color_modes": []string{"brightness"},
+		})
+	}
+	if d.Kind == hub.KindRelay || d.Kind == hub.KindPlug {
+		publish("switch", "switch", map[string]any{
+			"name":           nil,
+			"state_topic":    stateTopic,
+			"command_topic":  commandTopic,
+			"value_template": "{{ value_json.state }}",
+			"payload_on":     "ON",
+			"payload_off":    "OFF",
+		})
+	}
+	if d.Temperature != nil || d.Kind == hub.KindSensor {
+		publish("sensor", "temperature", map[string]any{
+			"name":                "Temperature",
+			"state_topic":         stateTopic,
+			"value_template":      "{{ value_json.temperature }}",
+			"device_class":        "temperature",
+			"state_class":         "measurement",
+			"unit_of_measurement": "°C",
+		})
+	}
+	if d.Humidity != nil || d.Kind == hub.KindSensor {
+		publish("sensor", "humidity", map[string]any{
+			"name":                "Humidity",
+			"state_topic":         stateTopic,
+			"value_template":      "{{ value_json.humidity }}",
+			"device_class":        "humidity",
+			"state_class":         "measurement",
+			"unit_of_measurement": "%",
+		})
+	}
+	if d.Battery != nil {
+		publish("sensor", "battery", map[string]any{
+			"name":                "Battery",
+			"state_topic":         stateTopic,
+			"value_template":      "{{ value_json.battery }}",
+			"device_class":        "battery",
+			"state_class":         "measurement",
+			"unit_of_measurement": "%",
+		})
+	} else {
+		b.publishRaw(discoveryTopic("sensor", d.IEEE, "battery"), []byte{}, true)
+	}
+	if d.Kind == hub.KindMotion || d.Occupancy != nil {
+		publish("binary_sensor", "occupancy", map[string]any{
+			"name":           nil,
+			"state_topic":    stateTopic,
+			"value_template": "{{ value_json.occupancy }}",
+			"payload_on":     "True",
+			"payload_off":    "False",
+			"device_class":   "motion",
+		})
+	}
+}
+
 func (b *Bridge) publishDevice(d hub.Device) {
 	body := map[string]any{}
 	if d.On != nil {
@@ -274,6 +379,15 @@ func (b *Bridge) publishDevice(d hub.Device) {
 	}
 	if d.Occupancy != nil {
 		body["occupancy"] = *d.Occupancy
+	}
+	if d.Temperature != nil {
+		body["temperature"] = *d.Temperature
+	}
+	if d.Humidity != nil {
+		body["humidity"] = *d.Humidity
+	}
+	if d.Battery != nil {
+		body["battery"] = *d.Battery
 	}
 	if d.Relay != nil {
 		if d.Relay.PowerOnBehavior != "" {

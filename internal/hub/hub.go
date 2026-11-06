@@ -36,6 +36,9 @@ type Device struct {
 	On           *bool      `json:"on,omitempty"`
 	Brightness   *uint8     `json:"brightness,omitempty"` // 0-100
 	Occupancy    *bool      `json:"occupancy,omitempty"`
+	Temperature  *float64   `json:"temperature,omitempty"` // Celsius
+	Humidity     *float64   `json:"humidity,omitempty"`    // Percent
+	Battery      *float64   `json:"battery,omitempty"`     // Percent
 	LastClick    string     `json:"last_click,omitempty"`
 	ClickSeq     uint64     `json:"click_seq,omitempty"`
 	LastSeen     *time.Time `json:"last_seen,omitempty"`
@@ -363,8 +366,12 @@ func (h *Hub) Interview(ctx context.Context, ieee string) error {
 		h.broadcast(Event{Type: "device", Data: mustDevice(h, ieee)})
 		return mapRadioError(err)
 	}
-	dev.Manufacturer = result.Manufacturer
-	dev.Model = result.Model
+	if result.Manufacturer != "" {
+		dev.Manufacturer = result.Manufacturer
+	}
+	if result.Model != "" {
+		dev.Model = result.Model
+	}
 	dev.Error = ""
 	applyInterview(dev, result)
 	h.mu.Unlock()
@@ -372,6 +379,9 @@ func (h *Hub) Interview(ctx context.Context, ieee string) error {
 	h.readState(dev.IEEE)
 	if dev.Kind == KindMotion || dev.HasOccupancy {
 		h.maybeSetupMotion(mustDevice(h, ieee))
+	}
+	if dev.Kind == KindSensor {
+		go h.setupSensor(dev.IEEE)
 	}
 	h.saveCache()
 	h.broadcast(Event{Type: "device", Data: mustDevice(h, dev.IEEE)})
@@ -382,6 +392,13 @@ func (h *Hub) Interview(ctx context.Context, ieee string) error {
 }
 
 func applyInterview(dev *Device, result *adapter.InterviewResult) {
+	clusterCount := 0
+	for _, ep := range result.Endpoints {
+		clusterCount += len(ep.InClusters) + len(ep.OutClusters)
+	}
+	if clusterCount == 0 {
+		return
+	}
 	in := make([]uint16, 0)
 	snaps := make([]Endpoint, 0, len(result.Endpoints))
 	names := make([]string, 0)
@@ -639,7 +656,90 @@ func (h *Hub) readState(ieee string) bool {
 			h.mu.Unlock()
 		}
 	}
+	if d.Kind == KindSensor {
+		read := func(cluster zcl.ClusterID, attr zcl.AttributeID) any {
+			ctx, cancel := context.WithTimeout(context.Background(), readTimeout)
+			defer cancel()
+			h.radio.Lock()
+			results, err := h.adapter.ReadAttributes(ctx, d.NwkAddr, d.Endpoint, cluster, attr)
+			h.radio.Unlock()
+			if err != nil || len(results) == 0 || results[0].Status != zcl.StatusSuccess {
+				return nil
+			}
+			return results[0].Value
+		}
+		temp, tempOK := read(zcl.ClusterTempMeasurement, zcl.AttrTempMeasuredValue).(int16)
+		humidity, humidityOK := read(zcl.ClusterHumidityMeas, zcl.AttrHumidityMeasuredValue).(uint16)
+		battery, batteryOK := read(zcl.ClusterPowerConfig, zcl.AttrPowerBatteryPercentage).(uint8)
+		h.mu.Lock()
+		if dev := h.devices[compactIEEE(ieee)]; dev != nil {
+			if tempOK && temp != -32768 {
+				value := float64(temp) / 100
+				dev.Temperature = &value
+				reached = true
+			}
+			if humidityOK && humidity != 0xffff {
+				value := float64(humidity) / 100
+				dev.Humidity = &value
+				reached = true
+			}
+			if batteryOK && battery != 0xff {
+				value := min(float64(battery)/2, 100)
+				dev.Battery = &value
+				reached = true
+			}
+			if reached {
+				dev.Reachable = true
+				dev.Error = ""
+				dev.LastSeen = &now
+				dev.LastSeenMs = now.UnixMilli()
+			}
+		}
+		h.mu.Unlock()
+	}
 	return reached
+}
+
+func (h *Hub) setupSensor(ieee string) {
+	d, err := h.Device(ieee)
+	if err != nil || d.Archived || d.NwkAddr == 0 {
+		return
+	}
+	addr, err := parseIEEE(d.IEEE)
+	if err != nil {
+		return
+	}
+	type sensorReport struct {
+		cluster zcl.ClusterID
+		attr    zcl.AttributeID
+		typ     zcl.DataType
+		min     uint16
+		max     uint16
+		change  any
+	}
+	reports := []sensorReport{
+		{zcl.ClusterTempMeasurement, zcl.AttrTempMeasuredValue, zcl.TypeInt16, 30, 3600, int16(20)},
+		{zcl.ClusterHumidityMeas, zcl.AttrHumidityMeasuredValue, zcl.TypeUint16, 30, 3600, uint16(100)},
+		{zcl.ClusterPowerConfig, zcl.AttrPowerBatteryPercentage, zcl.TypeUint8, 3600, 65000, uint8(10)},
+	}
+	for _, report := range reports {
+		if endpointWith(d, report.cluster.String()) == 0 {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
+		h.radio.Lock()
+		err := h.adapter.Bind(ctx, addr, d.NwkAddr, d.Endpoint, uint16(report.cluster), h.coordIEEE, 1)
+		if err == nil {
+			err = h.adapter.ConfigureReporting(ctx, d.NwkAddr, d.Endpoint, report.cluster, report.attr, report.typ, report.min, report.max, report.change)
+		}
+		h.radio.Unlock()
+		cancel()
+		if err != nil {
+			h.log.Info("sensor report setup", "ieee", d.IEEE, "cluster", fmt.Sprintf("0x%04X", uint16(report.cluster)), "err", err)
+			continue
+		}
+		h.log.Info("sensor reporting", "ieee", d.IEEE, "cluster", fmt.Sprintf("0x%04X", uint16(report.cluster)))
+	}
 }
 
 func endpointWith(d Device, cluster string) uint8 {

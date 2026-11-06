@@ -259,6 +259,10 @@ func (h *Hub) handleIncoming(msg *znp.IncomingMessage) {
 		return
 	}
 
+	if h.applySensorReport(d.IEEE, frame, msg.ClusterID) {
+		return
+	}
+
 	if d.Kind == KindLight || d.Kind == KindPlug || d.Kind == KindRelay {
 		h.applyLightReport(d.IEEE, frame, msg.ClusterID)
 		return
@@ -506,6 +510,62 @@ func (h *Hub) noteAction(ieee, action string) {
 	h.mu.Unlock()
 	h.log.Info("click", "name", mustDevice(h, ieee).Name, "action", action, "seq", seq)
 	h.broadcast(Event{Type: "device", Data: mustDevice(h, ieee)})
+}
+
+func (h *Hub) applySensorReport(ieee string, frame *zcl.Frame, cluster uint16) bool {
+	if frame.Control.FrameType != zcl.FrameTypeGlobal || frame.CommandID != uint8(zcl.CmdReportAttributes) {
+		return false
+	}
+	attrs, err := zcl.ParseReportAttributesPayload(frame.Payload)
+	if err != nil {
+		return false
+	}
+
+	now := time.Now()
+	h.mu.Lock()
+	dev := h.devices[compactIEEE(ieee)]
+	if dev == nil {
+		h.mu.Unlock()
+		return false
+	}
+	handled := false
+	for _, a := range attrs {
+		switch {
+		case cluster == uint16(zcl.ClusterTempMeasurement) && a.AttributeID == zcl.AttrTempMeasuredValue:
+			if raw, ok := a.Value.(int16); ok && raw != -32768 {
+				value := float64(raw) / 100
+				dev.Temperature = &value
+				handled = true
+			}
+		case cluster == uint16(zcl.ClusterHumidityMeas) && a.AttributeID == zcl.AttrHumidityMeasuredValue:
+			if raw, ok := a.Value.(uint16); ok && raw != 0xffff {
+				value := float64(raw) / 100
+				dev.Humidity = &value
+				handled = true
+			}
+		case cluster == uint16(zcl.ClusterPowerConfig) && a.AttributeID == zcl.AttrPowerBatteryPercentage:
+			if raw, ok := a.Value.(uint8); ok && raw != 0xff {
+				value := float64(raw) / 2
+				if value > 100 {
+					value = 100
+				}
+				dev.Battery = &value
+				handled = true
+			}
+		}
+	}
+	if handled {
+		dev.Reachable = true
+		dev.Error = ""
+		dev.LastSeen = &now
+		dev.LastSeenMs = now.UnixMilli()
+	}
+	h.mu.Unlock()
+	if handled {
+		h.saveCache()
+		h.broadcast(Event{Type: "device", Data: mustDevice(h, ieee)})
+	}
+	return handled
 }
 
 func (h *Hub) applyMotionReport(ieee string, frame *zcl.Frame, cluster uint16) bool {

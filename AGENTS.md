@@ -25,6 +25,15 @@ Rules for agents in this repo. README — how to run.
 - Unavailability: `0xB7`, `0xCD`, timeout → `unavailable` on the card, not an alert with raw status.
 - `%X` on goznp `ClusterID`, `Status`, and `DataType` prints the hex of `String()` (`OnOff` becomes `4F6E4F6666`). Compare status with `zcl.StatusSuccess`; log the numeric id.
 
+## Temperature/humidity sensors
+
+- SONOFF `SNZB-02D` is kind `sensor`. Standard values are temperature cluster `0x0402` attr `0x0000` (`int16`, 0.01 °C), humidity `0x0405` attr `0x0000` (`uint16`, 0.01%), and battery `0x0001` attr `0x0021` (`uint8`, 0.5%). Ignore invalid sentinels `0x8000`, `0xFFFF`, and `0xFF`.
+- API and MQTT keys are `temperature`, `humidity`, and `battery`. Save received measurements to the device cache so they survive restarts.
+- Sleeping sensors may answer only part of an interview or read. Keep each successful value independently. Never clear an existing value because another attribute timed out.
+- Bind and configure reporting only while the sensor is awake: temperature 30–3600 s / 0.2 °C, humidity 30–3600 s / 1%, battery 3600–65000 s / 5%. Do not poll sleeping sensors in the background.
+- A partial interview with zero discovered clusters must not erase existing manufacturer, model, kind, clusters, or endpoints. Preserve the last complete metadata snapshot.
+- `SNZB-02D` vendor clusters `0xFC57` and `0xFC11` are not additional environmental measurements.
+
 ## Relay (SONOFF ZBMINIR2)
 
 - Kind `relay` is only for model `ZBMINIR2` or white-label `MINI-ZBD`. An OnOff socket stays `plug` and does not get this dialog. Do not rename every plug to relay. Cache rows of a mini still stored as `plug` migrate to `relay` on load.
@@ -40,6 +49,7 @@ Rules for agents in this repo. README — how to run.
 - Device list filter: Active / Archived / All (`localStorage` `zigbeemq.filter`). Archive from the edit dialog; device stays on the network and in MQTT.
 - Switch card: `click: <type> · HH:MM:SS`, no click counter. Time with seconds from `last_seen_ms`.
 - Motion card: `motion detected · HH:MM:SS` when occupied.
+- Sensor card: show available temperature, humidity, and battery as equal compact tiles on one line. Values only: `°C` and `%`; no text labels. Keep interview cluster chips at the bottom.
 - Do not overwrite a fresh click with a stale GET. API: `Cache-Control: no-store`.
 - Unavailability is text on the card, no red border. API code: `unavailable`.
 - Archived devices: skip background interview / recovery probes; still controllable if shown via All / Archived.
