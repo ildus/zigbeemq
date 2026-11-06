@@ -1,13 +1,14 @@
 # zigbeemq
 
-Zigbee → HTTP + MQTT bridge in Go. A zigbee2mqtt-style bridge, not a z2m clone:
-one binary, a simple UI, and topics compatible with `zigbee2mqtt/<name>`.
+A small Zigbee bridge written in Go. It provides HTTP, MQTT topics compatible
+with `zigbee2mqtt/<name>`, and a simple web UI in one binary.
 
-Supports currently only limited number of devices, but the idea is connect
-something undefined and that add support for it using LLM.
+Device support is intentionally limited. The usual workflow is to join an
+unsupported device, inspect its Zigbee behavior, and add support with help from
+an LLM.
 
-Target host is OpenWrt. The stick runs on router. The Deploy script expects
-`router` host in ssh config.
+The target host is an OpenWrt router connected to the Zigbee stick. The deploy
+script uses the SSH host `router` from `~/.ssh/config`.
 
 ![ZigbeeMQ device list](screen.png)
 
@@ -18,7 +19,8 @@ Target host is OpenWrt. The stick runs on router. The Deploy script expects
 - MQTT: Mosquitto on host `bb`, `tcp://bb:1883`
 - Coordinator is **already formed** (channel 11). Do not reform the network.
 
-While this process holds the stick, zigbee2mqtt must not use the same serial port.
+`zigbeemq` needs exclusive access to the serial port. Stop zigbee2mqtt before
+starting it with the same stick.
 
 ## Build and run
 
@@ -68,7 +70,10 @@ After edits under `internal/web/static/`, rebuild: the page is embedded with `go
 - Unknown devices get a generic card; cluster snapshot after interview
 - MQTT: `zigbee2mqtt/<name>` (retain), `…/set`, `…/action` for buttons, `bridge/state`
 
-Interview and label cache: `data/devices.json` (directory is gitignored). Archive is a UI flag in that cache (`archived`); the device stays on the Zigbee network. Old caches without the field load as active — no migration.
+Interview data and labels are cached in `data/devices.json`; the directory is
+gitignored. Archiving sets the `archived` flag in this file and leaves the device
+on the Zigbee network. The cache is backward compatible: entries created before
+the flag was added load as active.
 
 ## HTTP API
 
@@ -93,7 +98,10 @@ Interview and label cache: `data/devices.json` (directory is gitignored). Archiv
 
 `PATCH /api/devices/{ieee}/relay` accepts any subset of `power_on_behavior` (`off`/`on`/`toggle`/`previous`), `network_indicator`, `turbo_mode`, `detach_relay_mode`, `external_trigger_mode` (`edge`/`pulse`/`following(off)`/`following(on)`), `delayed_power_on_state`, `delayed_power_on_time` (seconds, 0.5–3599.5, step 0.5), and one-shot `inching_control_set`. Omitted fields stay as they are.
 
-A sleeping sensor will not answer interview until woken. Unavailable devices (no ACK, `0xB7` / `0xCD`) show as unavailable on the card, without raw Z-Stack status. UI language defaults to English; Russian and German are selectable (stored in the browser).
+Wake a sleeping sensor before interviewing it. When a device does not acknowledge
+a request (`0xB7` / `0xCD`), its card shows `unavailable`; low-level Z-Stack status
+codes stay in the logs. The UI defaults to English. Russian and German are
+selectable, and the browser saves the choice.
 
 ## MQTT
 
@@ -113,7 +121,7 @@ internal/web/     HTTP + embedded UI
 internal/mq/      MQTT bridge
 ```
 
-UI is a single `index.html` with no framework.
+The UI is implemented as one vanilla `index.html` file.
 
 ## Important
 
